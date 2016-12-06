@@ -44,6 +44,7 @@
 
 
 /* USER CODE BEGIN Includes */
+#define 	LED_GPIO_Port 	GPIOD
 #define		LED_NARANJA		LD3_Pin
 #define		LED_VERDE		LD4_Pin
 #define		LED_ROJO	 	LD5_Pin
@@ -266,7 +267,14 @@ void SystemClock_Config(void)
 /* CAN1 init function */
 static void MX_CAN1_Init(void)
 {
+
+CAN_FilterConfTypeDef  sFilterConfig;
+static CanTxMsgTypeDef        TxMessage;
+static CanRxMsgTypeDef        RxMessage;
+
   hcan1.Instance = CAN1;
+  hcan1.pTxMsg = &TxMessage;
+  hcan1.pRxMsg = &RxMessage;
   hcan1.Init.TTCM = DISABLE;
   hcan1.Init.ABOM = DISABLE;
   hcan1.Init.AWUM = DISABLE;
@@ -322,7 +330,23 @@ static void MX_CAN1_Init(void)
     Error_Handler();
   }
 
-  // OJO - CONFIGURAR FILTROS!!!!!!
+//Filtros
+  sFilterConfig.FilterNumber = 0;
+  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  sFilterConfig.FilterIdHigh = 0x0000;
+  sFilterConfig.FilterIdLow = 0x0000;
+  sFilterConfig.FilterMaskIdHigh = 0x0000;
+  sFilterConfig.FilterMaskIdLow = 0x0000;
+  sFilterConfig.FilterFIFOAssignment = 0;
+  sFilterConfig.FilterActivation = ENABLE;
+  sFilterConfig.BankNumber = 14;
+
+  if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
+  {
+    /* Filter configuration Error */
+    Error_Handler();
+  }
 
 }
 
@@ -489,11 +513,10 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 HAL_StatusTypeDef CAN_Polling(void)
 {
-  CAN_FilterConfTypeDef  sFilterConfig;
-  static CanTxMsgTypeDef        TxMessage;
-  static CanRxMsgTypeDef        RxMessage;
 
-  MX_CAN1_Init();
+
+
+//  MX_CAN1_Init();
 
   // OJO - CONFIGURAR FILTROS!!!!
 
@@ -543,7 +566,7 @@ HAL_StatusTypeDef CAN_Polling(void)
     return HAL_ERROR;
   }
 
-  if ((hcan1.pRxMsg->Data[0]<<8|RxMessage.Data[1]) != 0xCAFE)
+  if ((hcan1.pRxMsg->Data[0]<<8|hcan1.pRxMsg->Data[1]) != 0xCAFE)
   {
     return HAL_ERROR;
   }
@@ -612,13 +635,13 @@ static void Task_Body( void* pvParams )
 		// Destello de le Naranja como primer ensayo
 		HAL_GPIO_TogglePin(GPIOD, LED_NARANJA);
 
-/*
+
 // 		Envío y rececpción de datos en modo Loopback por polling
 		if ( CAN_Polling() == HAL_ERROR )
-				HAL_GPIO_WritePin(GPIOD, LED_NARANJA, GPIO_PIN_SET);
+				HAL_GPIO_WritePin(GPIOD, LED_ROJO, GPIO_PIN_SET);
 		else
 			HAL_GPIO_WritePin(GPIOD, LED_VERDE, GPIO_PIN_SET);
-*/
+
 
 		vTaskDelayUntil(&xLastWakeTime,100);
 		//vTaskDelay(1000);
