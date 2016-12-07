@@ -8,17 +8,28 @@
   *                Real con Restricciones de Precedencia, Comunicación y Energía
   ******************************************************************************
   * 
-  * Copyright (c) 2016 Alejandro Borghero <alejandro.borghero@uns.edu.ar>
+  *  Copyright (c) 2016 Alejandro Borghero <alejandro.borghero@uns.edu.ar>
   *
-  *  Este programa es software libre: Usted puede redistribuirlo y/o 
-  *  modificarlo bajo los términos de la versión 3 de la licencia GPL (GNU 
-  *  General Public License) publicada por la Free Software Foundation.
-  * 
-  *  Debería haber recibido una copia de la GNU General Public License junto
-  *  con este programa. Si no es así, consulte <http://www.gnu.org/licenses/>
+  *  This program is free software: you can redistribute it and/or modify
+  *  it under the terms of the GNU General Public License as published by
+  *  the Free Software Foundation, either version 3 of the License.
+  *
+  *  This program is distributed in the hope that it will be useful,
+  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  *  GNU General Public License for more details.
+  *
+  *  You should have received a copy of the GNU General Public License
+  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
   * 
   ******************************************************************************
+  *
+  * TODO:
+  * 			Verify the can TxMessage and RxMessage  to the handler (hcan)
+  * 			Program Queues for tasks
+  *
   */
+
 
 
 /* Includes ------------------------------------------------------------------*/
@@ -27,8 +38,8 @@
 #include "usb_host.h"
 
 
-//#define RTOS 'C' 				// Usar CMSIS_OS
-#define RTOS 'F'				// Usar FreeRTOS
+//#define RTOS 'C' 				// Use CMSIS_OS
+#define RTOS 'F'					// Use FreeRTOS
 
 #if RTOS == 'C'
 #define CMSISOS
@@ -44,11 +55,27 @@
 
 
 /* USER CODE BEGIN Includes */
-#define 	LED_GPIO_Port 	GPIOD
-#define		LED_NARANJA		LD3_Pin
-#define		LED_VERDE		LD4_Pin
-#define		LED_ROJO	 	LD5_Pin
-#define		LED_AZUL 		LD6_Pin
+#define 	LED_GPIO_Port 			GPIOD
+#define		LED_ORANGE					LD3_Pin
+#define		LED_GREEN						LD4_Pin
+#define		LED_RED	 						LD5_Pin
+#define		LED_BLUE 						LD6_Pin
+#define		LED_ORANGE_ON()			HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_SET)
+#define		LED_GREEN_ON()			HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET)
+#define		LED_RED_ON()				HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET)
+#define		LED_BLUE_ON()				HAL_GPIO_WritePin(GPIOD, LD6_Pin, GPIO_PIN_SET)
+#define		LED_ORANGE_OFF()		HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_RESET)
+#define		LED_GREEN_OFF()			HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_RESET)
+#define		LED_RED_OFF()				HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET)
+#define		LED_BLUE_OFF()			HAL_GPIO_WritePin(GPIOD, LD6_Pin, GPIO_PIN_RESET)
+#define		LED_ORANGE_TOGGLE()	HAL_GPIO_TogglePin(GPIOD, LD3_Pin)
+#define		LED_GREEN_TOGGLE()	HAL_GPIO_TogglePin(GPIOD, LD4_Pin)
+#define		LED_RED_TOGGLE()		HAL_GPIO_TogglePin(GPIOD, LD5_Pin)
+#define		LED_BLUE_TOGGLE()		HAL_GPIO_TogglePin(GPIOD, LD6_Pin)
+
+#define		BUTTON_GPIO_Port	GPIOA
+#define		BUTTON				B1_Pin
+#define		BUTTON_PRESSED		1
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -75,12 +102,14 @@ enum SysFreq{F_025, F_050, F_075, F_100};
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void Error_Handler(void);
+void Error_Handler(uint8_t);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_CAN1_Init(void);
+HAL_StatusTypeDef ALE_CAN_Receive_IT(CAN_HandleTypeDef *hcan, uint8_t FIFONumber);
+
 
 HAL_StatusTypeDef CAN_Polling(void);
 
@@ -227,7 +256,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler(1);
   }
 
     /**Initializes the CPU, AHB and APB busses clocks 
@@ -241,7 +270,7 @@ void SystemClock_Config(void)
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler(1);
   }
 
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
@@ -249,7 +278,7 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler(1);
   }
 
     /**Configure the Systick interrupt time 
@@ -268,10 +297,11 @@ void SystemClock_Config(void)
 static void MX_CAN1_Init(void)
 {
 
-CAN_FilterConfTypeDef  sFilterConfig;
-static CanTxMsgTypeDef        TxMessage;
-static CanRxMsgTypeDef        RxMessage;
+	CAN_FilterConfTypeDef  sFilterConfig;
+	static CanTxMsgTypeDef        TxMessage;
+	static CanRxMsgTypeDef        RxMessage;
 
+// Configuration of interface
   hcan1.Instance = CAN1;
   hcan1.pTxMsg = &TxMessage;
   hcan1.pRxMsg = &RxMessage;
@@ -282,7 +312,7 @@ static CanRxMsgTypeDef        RxMessage;
   hcan1.Init.RFLM = DISABLE;
   hcan1.Init.TXFP = DISABLE;
 
-  // Ver RM0090 - pag. 1097
+  // See RM0090 - pag. 1097
   //	BaudRate = 1 / NominalBitTime
   //	NominalBitTime = tq + tBS1 + tBS2
   //	tBS1 = tq x ( TS1[3:0] + 1 )
@@ -291,33 +321,33 @@ static CanRxMsgTypeDef        RxMessage;
 
 
 //  hcan1.Init.Mode = CAN_MODE_NORMAL;
-  hcan1.Init.Mode = CAN_MODE_LOOPBACK;		// Modo loopback, restaurar NORMAL al finalizar prueba
+  hcan1.Init.Mode = CAN_MODE_LOOPBACK;		// Loopback mode, restore NORMAL mode at the end of the test
 
 
-  //  Prescaler  =  PCLK1 / ( BaudRate * total_de_tq )
-  //  total_de_tq = CAN_SJW + CAN_BS1 + CAN_BS2
-  //  total de tq = ( PCKL1 / Prescaler ) / BaudRate
+  //  Prescaler  =  PCLK1 / ( BaudRate * total_of_tq )
+  //  total_of_tq = CAN_SJW + CAN_BS1 + CAN_BS2
+  //  total of tq = ( PCKL1 / Prescaler ) / BaudRate
 
-//  Rango de valores ( RM0090 - pag. 1096 )
-//  	  CAN_SJW = 1 a  4 TQ        --> Típicamente 1TQ
+//  Values ranges ( RM0090 - pag. 1096 )
+//  	  CAN_SJW = 1 a  4 TQ        --> Typically 1TQ
 //  	  CAN_BS1 = 1 a 16 TQ
 //  	  CAN_BS2 = 1 a  8 TQ
 //  	  Prescaler = 1 a 1024
 
-//  El muestreo se utiliza tipicamente entre el 75% (ARINC 825) y 87.5% (CANopen)
-//  Por lo tanto (( CAN_SJW + CAN_BS1 ) / ( CAN_SJW + CAN_BS1 + CAN_BS2 )) = 0.875 ( RM0090 - pag. 1097 )
+//  Sampling is typically used between 75% (ARINC 825) and 87.5% (CANopen)
+//  Thus (( CAN_SJW + CAN_BS1 ) / ( CAN_SJW + CAN_BS1 + CAN_BS2 )) = 0.875 ( RM0090 - pag. 1097 )
 
-//  total de tq = ( PCKL1 / Prescaler ) / BaudRate = ( 42000000 / 1000000 ) / Prescaler
-  // 		 para Prescaler  = 2	=>	total_de_tq = 21
-  // 		 para Prescaler  = 3	=>	total_de_tq = 14
-  // 		 para Prescaler  = 6	=>	total_de_tq = 7
-  // 		 para Prescaler  = 7	=>	total_de_tq = 6
-  // 		 para Prescaler  = 14	=>	total_de_tq = 3
+//  total of tq = ( PCKL1 / Prescaler ) / BaudRate = ( 42000000 / 1000000 ) / Prescaler
+  // 		 for Prescaler  = 2	=>	total_of_tq = 21
+  // 		 for Prescaler  = 3	=>	total_of_tq = 14
+  // 		 for Prescaler  = 6	=>	total_of_tq = 7
+  // 		 for Prescaler  = 7	=>	total_of_tq = 6
+  // 		 for Prescaler  = 14	=>	total_of_tq = 3
 
-//  Usando CAN_SJW = 1TQ , CAN_BS1 = 11TQ , CAN_BS2 = 2TQ resulta:
-//  	  	  total_de_tq = CAN_SJW + CAN_BS1 + CAN_BS2 = 14
-//  	  	  muestreo = (( CAN_SJW + CAN_BS1 ) / ( CAN_SJW + CAN_BS1 + CAN_BS2 )) = 0.857
-//	Prescaler = PCLK1 / ( BaudRate * total_de_tq ) = ( 42000000 / 14 ) / 1000000 = 3
+//  Using CAN_SJW = 1TQ , CAN_BS1 = 11TQ , CAN_BS2 = 2TQ result:
+//  	  	  total_of_tq = CAN_SJW + CAN_BS1 + CAN_BS2 = 14
+//  	  	  sampling = (( CAN_SJW + CAN_BS1 ) / ( CAN_SJW + CAN_BS1 + CAN_BS2 )) = 0.857
+//	Prescaler = PCLK1 / ( BaudRate * total_of_tq ) = ( 42000000 / 14 ) / 1000000 = 3
 
   hcan1.Init.SJW = CAN_SJW_1TQ;
   hcan1.Init.BS1 = CAN_BS1_11TQ;
@@ -326,11 +356,10 @@ static CanRxMsgTypeDef        RxMessage;
 
   if (HAL_CAN_Init(&hcan1) != HAL_OK)
   {
-	  HAL_GPIO_WritePin(GPIOD, LED_AZUL, GPIO_PIN_SET);
-    Error_Handler();
+    Error_Handler(1);
   }
 
-//Filtros
+// Filter configuration
   sFilterConfig.FilterNumber = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
@@ -345,9 +374,14 @@ static CanRxMsgTypeDef        RxMessage;
   if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
   {
     /* Filter configuration Error */
-    Error_Handler();
+    Error_Handler(1);
   }
-
+// Configure transmission process
+  hcan1.pTxMsg->StdId = 0x11;
+  hcan1.pTxMsg->ExtId = 0x0;
+  hcan1.pTxMsg->RTR = CAN_RTR_DATA;
+  hcan1.pTxMsg->IDE = CAN_ID_STD;
+  hcan1.pTxMsg->DLC = 2;
 }
 
 /* I2C1 init function */
@@ -365,7 +399,7 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
   if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler(1);
   }
 
 }
@@ -385,7 +419,7 @@ static void MX_I2S3_Init(void)
   hi2s3.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
   if (HAL_I2S_Init(&hi2s3) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler(1);
   }
 
 }
@@ -408,7 +442,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CRCPolynomial = 10;
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler(1);
   }
 
 }
@@ -515,23 +549,14 @@ HAL_StatusTypeDef CAN_Polling(void)
 {
 
 
-
-//  MX_CAN1_Init();
-
-  // OJO - CONFIGURAR FILTROS!!!!
-
-// Inicio de transmisión
-  hcan1.pTxMsg->StdId = 0x11;
-  hcan1.pTxMsg->RTR = CAN_RTR_DATA;
-  hcan1.pTxMsg->IDE = CAN_ID_STD;
-  hcan1.pTxMsg->DLC = 2;
+// Transmission start
   hcan1.pTxMsg->Data[0] = 0xCA;
   hcan1.pTxMsg->Data[1] = 0xFE;
 
   if(HAL_CAN_Transmit(&hcan1, 10) != HAL_OK)
   {
     /* Transmission Error */
-    Error_Handler();
+    Error_Handler(1);
   }
 
   if(HAL_CAN_GetState(&hcan1) != HAL_CAN_STATE_READY)
@@ -539,11 +564,11 @@ HAL_StatusTypeDef CAN_Polling(void)
     return HAL_ERROR;
   }
 
-// Inicio de Recepción
+// Reception start
   if(HAL_CAN_Receive(&hcan1, CAN_FIFO0,10) != HAL_OK)
   {
     /* Reception Error */
-    Error_Handler();
+    Error_Handler(1);
   }
 
   if(HAL_CAN_GetState(&hcan1) != HAL_CAN_STATE_READY)
@@ -628,21 +653,49 @@ static void Task_Body( void* pvParams )
 
 	portTickType xLastWakeTime=(portTickType)(0);
 
+	uint8_t idx=0;
+
+// Initiates the interrupt reception process
+//  if(HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
+//  {
+//    /* Reception Error */
+//    Error_Handler(1);
+//  }
+ ALE_CAN_Receive_IT(&hcan1, CAN_FIFO0);
+
 	for (;;)
 	{
 //		sprintf( "%s -- %d\n\r", pcTaskName, xTaskGetTickCount() );
 
-		// Destello de le Naranja como primer ensayo
-		HAL_GPIO_TogglePin(GPIOD, LED_NARANJA);
+		// The led flashes to show that the systems is working
+		HAL_GPIO_TogglePin(GPIOD, LED_ORANGE);
 
-
-// 		Envío y rececpción de datos en modo Loopback por polling
+/*
+// 		Transmission and reception in Loopback mode (Polling)
 		if ( CAN_Polling() == HAL_ERROR )
-				HAL_GPIO_WritePin(GPIOD, LED_ROJO, GPIO_PIN_SET);
+				HAL_GPIO_WritePin(GPIOD, LED_RED, GPIO_PIN_SET);
 		else
-			HAL_GPIO_WritePin(GPIOD, LED_VERDE, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOD, LED_GREEN, GPIO_PIN_SET);
+*/
 
+		if(HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON) == BUTTON_PRESSED)
+		{
+			idx%=3;
+			// Set the data to be transmitted
+			hcan1.pTxMsg->Data[0] = ++idx;
+			hcan1.pTxMsg->Data[1] = 0xAD;
 
+//			HAL_GPIO_WritePin(GPIOD, LED_BLUE, GPIO_PIN_SET);
+//			HAL_CAN_Transmit(&hcan1, 10);
+
+			// Transmits the data
+			if(HAL_CAN_Transmit(&hcan1, 10) != HAL_OK)
+			{
+				/* Transmition Error */
+				Error_Handler(1);
+			}
+			HAL_Delay(10);
+		}
 		vTaskDelayUntil(&xLastWakeTime,100);
 		//vTaskDelay(1000);
 	}
@@ -674,19 +727,133 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @param  None
+  * @brief  This function is executed in case of error occurrence. The red led
+  * will flash nerror times.
+  * @param  nerror : Number of error.
   * @retval None
   */
-void Error_Handler(void)
+void Error_Handler(uint8_t nerror)
 {
+	uint8_t i;
   /* USER CODE BEGIN Error_Handler */
   /* User can add his own implementation to report the HAL error return state */
-	HAL_GPIO_WritePin(GPIOD, LED_ROJO, GPIO_PIN_SET);
+	LED_RED_OFF();
   while(1) 
   {
-  }
+		for(i=0; i < nerror; ++i)
+		{
+			LED_RED_TOGGLE();
+			HAL_Delay(500);
+			LED_RED_TOGGLE();
+			HAL_Delay(500);
+		}
+		HAL_Delay(1500);
   /* USER CODE END Error_Handler */ 
+  }
+
+}
+// CAN Rx complete callback
+void HAL_CAN_RxCpltCallback(CAN_HandleTypeDef* hcan)
+{
+  if ((hcan->pRxMsg->StdId == 0x11)&&(hcan->pRxMsg->IDE == CAN_ID_STD) && (hcan->pRxMsg->DLC == 2))
+  {
+  	HAL_GPIO_WritePin(GPIOD, LED_GREEN | LED_BLUE, GPIO_PIN_RESET);
+    switch(hcan->pRxMsg->Data[0])
+    {
+    /* Shutdown leds */
+    case 0:
+    	HAL_GPIO_WritePin(GPIOD, LED_GREEN | LED_BLUE, GPIO_PIN_RESET);
+    	break;
+    case 1:
+    	HAL_GPIO_WritePin(GPIOD, LED_GREEN, GPIO_PIN_SET);
+    	break;
+    case 2:
+    	HAL_GPIO_WritePin(GPIOD, LED_BLUE, GPIO_PIN_SET);
+    	break;
+    case 3:
+    	HAL_GPIO_WritePin(GPIOD, LED_GREEN | LED_BLUE, GPIO_PIN_SET);
+    	break;
+    case 4:
+    	break;
+    default:
+    	break;
+    }
+  }
+
+//  while(HAL_CAN_Receive_IT(hcan, CAN_FIFO0)  != HAL_OK)
+//  	{
+//  	HAL_GPIO_TogglePin(GPIOD, LED_BLUE);
+// 		HAL_Delay(50);
+//
+//  	}
+
+
+
+
+// Rearm the receive interrupt
+  if(ALE_CAN_Receive_IT(hcan, CAN_FIFO0) != HAL_OK)
+  {
+    /* Reception Error */
+    Error_Handler(3);
+  }
+}
+
+/**
+  * @brief  Receives a correct CAN frame. Modified to unlock the can interface.
+  * @param  hcan:       Pointer to a CAN_HandleTypeDef structure that contains
+  *         the configuration information for the specified CAN.
+  * @param  FIFONumber: Specify the FIFO number
+  * @retval HAL status
+  */
+HAL_StatusTypeDef ALE_CAN_Receive_IT(CAN_HandleTypeDef* hcan, uint8_t FIFONumber)
+{
+
+  /* Check the parameters */
+  assert_param(IS_CAN_FIFO(FIFONumber));
+
+
+	if(hcan->State == HAL_CAN_STATE_BUSY_TX)
+	{
+		/* Change CAN state */
+		hcan->State = HAL_CAN_STATE_BUSY_TX_RX;
+	}
+	else
+	{
+		/* Change CAN state */
+		hcan->State = HAL_CAN_STATE_BUSY_RX;
+
+		/* Set CAN error code to none */
+		hcan->ErrorCode = HAL_CAN_ERROR_NONE;
+
+		/* Enable Error warning Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_EWG);
+
+		/* Enable Error passive Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_EPV);
+
+		/* Enable Bus-off Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_BOF);
+
+		/* Enable Last error code Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_LEC);
+
+		/* Enable Error Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_ERR);
+	}
+
+	if(FIFONumber == CAN_FIFO0)
+	{
+		/* Enable FIFO 0 message pending Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_FMP0);
+	}
+	else
+	{
+		/* Enable FIFO 1 message pending Interrupt */
+		__HAL_CAN_ENABLE_IT(hcan, CAN_IT_FMP1);
+	}
+
+  /* Return function status */
+  return HAL_OK;
 }
 
 #ifdef USE_FULL_ASSERT
